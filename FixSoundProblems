@@ -1,0 +1,7 @@
+Problem: Sound does not work at all, or in some applications
+
+Sound is disabled by default because the ALSA sound driver is still "alpha" (not fully tested) on the R-Pi. To try out sound, from the command prompt before "startx", type
+
+sudo apt-get install alsa-utils
+sudo modprobe snd_bcm2835
+sudo aplay /usr/share/sounds/alsa/Front_Center.wav

@@ -1,0 +1,168 @@
+Raspberry pi: Video and Audio recording and streaming guide
+
+August 1, 2016Daniel	 raspberry_pi  Tags: audio, raspberry pi, raspi, recording, stream, streaming, video
+I’ve spent some time on setting up audio and video streaming on my raspberry pi (mostly used as a baby monitor right now). While there are great ressources out there, it took me a lot of effort to find them and put everything together. So here’s a handy list of instructions if you want to:
+
+Record and stream audio
+Record and stream both audio and video into one file
+Are just looking for an introduction into the topic.
+
+Limitations
+
+There are a few things I need to put up front here:
+
+I use a Raspberry Pi 2 with Raspbian on it, with the PiNoir camera module and a cheap USB microphone connected to it. The same instructions probably apply for all Pi models. If you use a different OS than Raspbian, you’re probably far more advanced than I am and know how to adopt this stuff yourself. If you use a normal webcam instead of the Pi camera modules, most of my ressources will not be helpful either.
+
+I only cover streaming on a local network and will not adress streaming over the internet. Most importantly, I’m an absolute beginner regarding Pi and linux things and can not give any security-related advice (e.g. how to setup an encrypted internet stream). So if you need these instructions and do anything security-related with them (like adding internet access to potentially private video streams), you’re completely insane.
+
+Ressources for the Raspberry Pi video camera
+
+These are easy to find and I’ll just put them here for reference:
+
+I’ve mostly been using the excellent adafruit tutorials, most importantly to set up SSH access. Additionally, there is a good guide here on how to set up a static IP adress (also check out the other tutorials at circuitbasics). The official pi website also has good tutorials.
+
+For the camera module, you should be fine with the official raspberry pi documentation  (also on how to connect and enable it and a very basic getting started for the python module). Basically, I use these commands for recording images and video:
+
+image without preview:
+raspistill -o image.jpg -n
+video in 720p with 2Mbit/s (hit STRG+c to stop recording):
+raspivid -o video.h264 -t 0 -b 2000000 -w 1280 -h 720
+To access the files on my Pi, I use SFTP with FileZilla.
+
+This should set you up for everything more advanced. Additionally, use the “top” command when connected with SSH to see all running processes (use “k” to kill a process and STRG+c to exit top) and append ” &” to a command to start it in the background (so you dont have to open several SSH windows at once to start several processes).
+
+Streaming video
+
+For streaming video, there are basically the possibilities of using GStreamer, VLC, ffmpeg, netcat and mjpeg.
+
+There is a very good blogpost here that describes streaming video and audio with GStreamer (install it withsudo apt-get install gstreamer1.0) and also covers the setup for an usb microphone. For me, the stream worked very well and without any noticable latency (i’d say below 100ms). Downsides are mainly that GStreamer is required on the receiving end – with OSX and Linux this works perfectly fine, for Windows this tutorial here may help (although I haven’t tried it). If you want to connect with multiple devices including Smartphones, this will probably not be your preferred option, but if you have one fixed machine as receiver, this should work fine.
+
+For the other options, there is a decent article here describing each approach. It ultimately recommends using mjpeg. This appears to be the best solution for web-based access with smartphones and also seems to have low latency (I haven’t tried it) but probably won’t work well combined with audio or with high-resolution streams.
+
+I’ve tried GStreamer (see above), VLC and Netcat. VLC produced mediocre stream quality with a lot of lag, Netcat was very simple to set up but wouldn’t work on Android since you have to add “:demux h264” on the receiving end as an option. If you want to try it, use these commands:
+
+On the pi:
+raspivid -t 0 -o - | nc -l -p 2222
+(-p: choose any port higher than 1023)
+
+In VLC: open network stream:
+tcp://192.168.1.20:2222
+add in options: :demux=h264
+I haven’t tried FFmpeg since I didn’t feel like compiling it myself (~2h duration) and there appears to be no clear benefit. Mainly I wanted to have both video and audio in my stream – which brings us first to network protocols and then to picam.
+
+Network protocols and streaming audio
+
+Again, I’m not an expert in any of this, but it’s particularly bad for network protocols. So read ahead with care.
+
+It appears there are two protocols for sending data over a network: TCP and UDP – see here, here or here for an explanation. Basically, TCP checks that no packets are lost (slow and reliable) while UDP just pushes packets over the network without any checks (fast but unreliable). So for videostreaming UDP is mostly the better option (potentially less lag) but TCP is used for http, appears to be easier to set up and is supported by more devices (e.g. every standard webbrowser). The simple streaming example with netcat above uses TCP.
+
+Streams with RTP (real-time transmission protocoll) usually use UDP. Since it only contains the stream itself, it is often used together with RTSP (real-time streaming protocoll) – we’ll get into that below.
+
+Then there is the question of where to send your stream to. You can either send your stream directly to a certain IP (which means you need to tell your pi where the stream is headed to) or send it to a multicast adress in the range 224.x.x.x – 239.x.x.x  that makes it available on the complete network (and, depending on your router configuration, can be forwarded to other LANs that are connected). Or you can set up an rtsp server that will process incoming requests for streams. To give you an idea for volume considerations: raspicam has a standard bitrate of 5 Mbit/s, a standard wifi card with 802.11g allows up to 54 Mbit/s. The recommendation I have seen is that for a up to ~3 users and 3-4 seconds lag, you should be fine with a TCP/http stream, for more receiving devices or less lag, you should use UDP / RTP.
+
+Below, I’ll show the different possibilities with VLC and an audio stream from the microphone. This can also be adopted for a video stream (see the links above). Setting up the usb microphone is well described in the article already mentioned above.
+
+Audio stream examples with VLC:
+
+TCP/http, open http://<PI_ip_adress>:8000 in VLC to recieve:
+cvlc -vvv alsa://hw:1,0 --sout \
+ '#transcode{acodec=mp3,ab=128}:standard{access=http,mux=ts,dst=:8000}'
+RTP with multicast, open rtp://239.255.1.1 in VLC to recieve:
+cvlc -vvv alsa://hw:1,0 --sout \
+ '#transcode{acodec=mp3,ab=128}:rtp{mux=ts,dst=239.255.1.1,sdp=sap}'
+Both streams have a delay of ~1s and I’m a bit clueless on how to further reduce it.
+
+Also, when distribuiting audio, there are other possibilities, including a direct stream over SSH or using FFmpeg and on the more advanced side OpenOB (possibly) and icecast.
+
+Combine video and audio with picam
+
+Now that we have set up both video and audio recording – how can we combine them in one file? It turns out this is not as easy as it should be. The raspivid-command clearly does not accept audio input itself, so we need some other program to combine both.
+
+This should be possible with vlc – but with a lot of searching, I’ve only found ressources of people trying and not really getting it to work. If you want to stream both to a different device, you may set up separate streams for video and audio – instructions are here for VLC and also here for FFmpeg and icecast (and another FFmpeg post with few details here)
+
+After spending a lot of time on optimizing VLC, I’ve found the program picam that does exactly what I’ve been looking for. So if you want to either record or stream both video and audio on your pi, I’d highly recommend picam. The instructions for installing picam are very clear and have worked for me without problems.
+
+Picam will be started with (assuming the USB microphone is on hw:1,0):
+
+cd ~/picam
+./picam --alsadev hw:1,0 &
+To start/stop recording use:
+
+touch hooks/start_record
+touch hooks/stop_record
+Here are a few examples for setting up picam for different recording types:
+
+Record with 90fps:
+./picam --alsadev hw:1,0 -h 480 -w 640 -f 90 &
+Record full HD:
+./picam --alsadev hw:1,0 -w 1920 -h 1080 -f 30 &
+Setting up a network stream with picam and node-rtsp-rtmp-server:
+
+Picam has support for http streaming built into it and the instructions page also adds details to passing the stream to different programs. The easiest option is to use the node-rtsp-rtmp-server written by the same author which works very well. While Node.js is already included in Raspbian, I needed to install the npm and coffee tools manually:
+
+sudo apt-get npm
+sudo npm install coffee-script -g
+With this, I was able to install the node-rtsp-rtmp-server as documented:
+
+git clone https://github.com/iizukanao/node-rtsp-rtmp-server.git
+cd node-rtsp-rtmp-server
+npm install -d
+To set things up, first start the server and then run picam with the option -rtspout:
+
+cd ~/node-rtsp-rtmp-server
+./start_server.sh &
+# and once the server is started (you'll see some output in the console)
+cd ~/picam
+./picam --alsadev hw:1,0 --rtspout -w 800 -h 480 -v 500000 -f 20 &
+To access the stream in VLC, open a network stream at rtsp://<pi_ip_adress>:80/live/picam. This also works on my wife’s Galaxy S5 phone in VLC, but not on my (very old and slow) Android 4.0 tablet.
+
+The rtsp server appears to take about 30 seconds to start, so bootup time is not optimal, but currently I think this is sufficient. Picam also appears to work well with other options like nginx – try on your own if required.
+
+Automatically starting a stream upon boot
+
+There appear to be several possibilities to automatically start a program after a reboot, documented here. I use cron to start a script called autostart.sh that itself starts either audiostream.sh or videostream.sh (I haven’t figured out a way yet to start both at the same time but toggle the # depending on which one I currently do not need).
+
+run “crontab -e” and add:
+@reboot /home/pi/autostart.sh
+These are the scripts I use (remember to make them executable with “chmod +x <scriptname>.sh”):
+
+autostart.sh:
+#!/bin/bash 
+#/home/pi/audiostream.sh > log_autostart.txt
+/home/pi/videostream.sh > log_autostart.txt
+audiostream.sh:
+sleep 5
+cvlc -vvv alsa://hw:1,0 --sout \
+'#transcode{acodec=mp3,ab=128}:standard{access=http,mux=ts,dst=:8000}' &
+videostream.sh:
+sleep 1
+cd /home/pi/node-rtsp-rtmp-server
+./start_server.sh &
+sleep 40
+cd /home/pi/picam
+./picam --alsadev hw:1,0 --rtspout -w 800 -h 480 -v 500000 -f 20 &
+Sidenotes: It appears to be helpful to add a short delay after boot to make sure everything is set up. Also, the home directory seems to be not yet available so I use /home/pi instead of ~. In any case, the “> log_autostart.txt” part in the first script leads to all output being written to the text file to give an indication on what went possibly wrong.
+
+Optimizing latency and recording streams in VLC
+
+When I first ran the code given above, I still had ~2 seconds of latency in my stream. Since the rtsp-solution used above is supposed to be much faster, I had a look at VLC on the receiving end and found a simple improvement: At Tools > Preferences > input/codecs there’s a network option where you can set the caching from standard to lowest latency. With this, I’m down to roughly 300-500 ms of latency in my stream.
+
+Also, VLC offers the possibility to record your current stream. You can either find it in the menu or add it to the playback buttons. In my case, the video is recorded to my local videos folder.
+
+Motion detection and other ressources
+
+That’s it, we’re at the end of the now very long blog post. Since I’ve also had a look at motion detection (regarding the possibility to use the Pi as a simple home alarm system) and this relates to the video streaming topic, I’ll also put links in here as well.
+
+Regarding motion detection, I’ve seen two options: Python and motion.
+
+Motion appears to be quite good at this and offers all kinds of features, with details for example here and here. Originally, the downside was that while motion works well with usb webcams, it did not with the Pi Cam / Pi NoIR modules unless you install a special version. This is all information from ~2013 and it appears now there’s a ready-made image called motionPie that shortcuts a lot and also an easier workaround using the uv4l software kit.
+
+If you want to do this in Phython, there are other options. Here is a detailed explanation using the RPi-Cam-Web-Interface (the first time I’ve heard of this) and python-based push messages to a smartphone. A more simple approach that I’ve actually tried (sucessful) is the simple python script here (read till the second page) that takes photos and compares them pixel-by-pixel.
+
+Sidenote: OpenCV also appears to be an option for more advanced users.
+
+Closing remarks: I now put a lot of effort into gathering all the resources I’ve found. If something is incorrect or missing, please let me know.
+
+Update on Nov. 2nd 2016: I wanted to look up how to open the picam rtsp stream in VLC and found it missing in my blogpost. Now it’s added.
+
+Update on Nov. 12th 2016: Added the install command for gstreamer1.

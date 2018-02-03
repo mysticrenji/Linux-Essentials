@@ -1,0 +1,10 @@
+For simple startup service management on Raspberry Pi I recommend tool rcconf. It allows you to easily turn on/off services in /etc/init.d/. You can also see if they are enabled and will run at startup.
+
+To install the tool
+
+sudo apt-get install rcconf
+
+And is very simple to use it with text UI
+
+sudo rcconf
+
